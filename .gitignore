@@ -1,0 +1,12 @@
+**/target/
+**/data/
+deerflow/logs/
+deerflow/uploads/
+deerflow/${user.dir}/
+deerflow-frontend/node_modules/
+deerflow-frontend/dist/
+deerflow-frontend/dist-ssr/
+*.log
+.env
+.env.*
+!.env.example

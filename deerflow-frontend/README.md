@@ -9,8 +9,8 @@ A minimal, developer-friendly web interface for the DeerFlow agent runtime.
 From the repository root:
 
 ```bash
-mvn -pl haifa-ai/haifa-ai-deerflow -am clean install -DskipTests
-mvn -pl haifa-ai/haifa-ai-deerflow spring-boot:run
+mvn -pl deerflow -am clean install -DskipTests
+mvn -pl deerflow spring-boot:run
 ```
 
 The backend runs at `http://localhost:8095`.
@@ -18,7 +18,7 @@ The backend runs at `http://localhost:8095`.
 ### 2. Start the frontend
 
 ```bash
-cd haifa-ai/haifa-ai-deerflow-web
+cd deerflow-frontend
 npm install
 npm run dev
 ```

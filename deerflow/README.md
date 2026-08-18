@@ -39,7 +39,7 @@ Sandbox execution supports `local-restricted`, opt-in `local-trusted`, and `dock
 从仓库根目录运行：
 
 ```bash
-mvn -pl haifa-ai/haifa-ai-deerflow -am spring-boot:run
+mvn -pl deerflow -am spring-boot:run
 ```
 
 使用 OpenAI-compatible provider：
@@ -51,7 +51,7 @@ $env:HAIFA_DEERFLOW_MODEL = "gpt-4o-mini"
 $env:LLM_NETWORK_PROXY_URL = "socks5://127.0.0.1:1080" # Optional: http, https, or socks5
 $env:LLM_NETWORK_PROXY_USERNAME = "proxy-user"         # Optional
 $env:LLM_NETWORK_PROXY_PASSWORD = "proxy-password"     # Optional
-mvn -pl haifa-ai/haifa-ai-deerflow -Popenai spring-boot:run
+mvn -pl deerflow -Popenai spring-boot:run
 ```
 
 Gemini 3 工具调用必须使用 Google 原生 profile，Spring AI 1.1.x 的 OpenAI-compatible
@@ -61,7 +61,7 @@ adapter 不会保留 Gemini `thought_signature`：
 $env:GEMINI_API_KEY = "your-gemini-key" # OPENAI_API_KEY 也可作为兼容回退
 $env:HAIFA_DEERFLOW_MODEL = "gemini-3-flash-preview"
 $env:LLM_NETWORK_PROXY_URL = "socks5://127.0.0.1:1080" # Optional
-mvn -pl haifa-ai/haifa-ai-deerflow -Pgoogle-genai spring-boot:run
+mvn -pl deerflow -Pgoogle-genai spring-boot:run
 ```
 
 不要同时启用 `openai` 和 `google-genai` profile。Google 原生 SDK 使用 Google endpoint，
@@ -208,25 +208,25 @@ curl -N -X POST http://localhost:8095/api/deerflow/runs/stream \
 编译：
 
 ```bash
-mvn -pl haifa-ai/haifa-ai-deerflow -DskipTests clean compile
+mvn -pl deerflow -DskipTests clean compile
 ```
 
 测试：
 
 ```bash
-mvn -pl haifa-ai/haifa-ai-deerflow test
+mvn -pl deerflow test
 ```
 
 打包：
 
 ```bash
-mvn -pl haifa-ai/haifa-ai-deerflow -am package
+mvn -pl deerflow -am package
 ```
 
 运行 jar：
 
 ```bash
-java -jar haifa-ai/haifa-ai-deerflow/target/haifa-ai-deerflow-1.0-SNAPSHOT.jar
+java -jar deerflow/target/haifa-ai-deerflow-1.0-SNAPSHOT.jar
 ```
 
 ## 部署注意事项

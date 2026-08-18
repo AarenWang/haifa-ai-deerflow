@@ -88,13 +88,13 @@ $env:VOICE_TTS_PROVIDER = "dashscope"
 ## 启动与验证
 
 ```powershell
-mvn -pl haifa-ai/haifa-ai-deerflow -am spring-boot:run
+mvn -pl deerflow -am spring-boot:run
 ```
 
 另一个终端启动前端：
 
 ```powershell
-Set-Location haifa-ai/haifa-ai-deerflow-web
+Set-Location deerflow-frontend
 npm run dev
 ```
 

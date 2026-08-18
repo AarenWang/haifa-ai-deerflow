@@ -17,7 +17,7 @@
 ## 本地运行
 
 ```powershell
-mvn -pl haifa-ai/haifa-ai-utility-mcp-server -am spring-boot:run
+mvn -pl utility-mcp-server -am spring-boot:run
 ```
 
 本地 endpoint 为 `http://127.0.0.1:8091/mcp`。测试默认使用固定 fixture 或本地 loopback server，不访问公网。
@@ -31,7 +31,7 @@ $env:SPRING_PROFILES_ACTIVE='production'
 $env:UTILITY_MCP_JWT_ISSUER='${UTILITY_MCP_JWT_ISSUER}'
 $env:UTILITY_MCP_JWT_AUDIENCE='${UTILITY_MCP_JWT_AUDIENCE}'
 $env:UTILITY_MCP_ALLOWED_ORIGINS='${UTILITY_MCP_ALLOWED_ORIGINS}'
-mvn -pl haifa-ai/haifa-ai-utility-mcp-server -am spring-boot:run
+mvn -pl utility-mcp-server -am spring-boot:run
 ```
 
 访问 `/mcp` 的 token 需要同时具有 `mcp:tools:list` 和 `mcp:tools:call` scope。当前 Streamable HTTP 在同一路径承载发现与调用，因此生产基线在 HTTP 资源边界要求两项 scope；未来若协议 transport 提供可靠的 method-level 授权挂点，可再细分最小权限。不要将 token、完整请求/响应、用户隐私或带敏感 query 的 URL 写入日志。健康检查为 `/actuator/health`，指标为 `/actuator/metrics`；Prometheus endpoint 只有加入 registry 后才可用。
@@ -47,7 +47,7 @@ Provider base URL 只能来自服务端配置，生产仅允许 HTTPS；重定�
 ```powershell
 $env:UTILITY_MCP_PROXY_URL='http://127.0.0.1:7890'
 $env:UTILITY_MCP_PROXY_PROVIDERS='wikimedia'
-mvn -pl haifa-ai/haifa-ai-utility-mcp-server -am spring-boot:run
+mvn -pl utility-mcp-server -am spring-boot:run
 ```
 
 多个 Provider 使用逗号分隔，例如 `UTILITY_MCP_PROXY_PROVIDERS=wikimedia,open-meteo,frankfurter`。支持的名称为 `open-meteo`、`open-meteo-geocoding`、`open-meteo-air-quality`、`frankfurter`、`nager-date`、`wikimedia`；名称忽略首尾空格和大小写，未知名称会导致启动失败，避免因拼写错误而静默直连。
@@ -102,8 +102,8 @@ event=mcp_provider_request_failed provider=open-meteo path=/v1/forecast code=UPS
 ## 验证
 
 ```powershell
-mvn -pl haifa-ai/haifa-ai-utility-mcp-server -am verify
-mvn -pl haifa-ai/haifa-ai-deerflow -am verify
+mvn -pl utility-mcp-server -am verify
+mvn -pl deerflow -am verify
 ```
 
 协议证据见 [mcp-compatibility-spike.md](docs/mcp-compatibility-spike.md)，客户端模板见 [client-compatibility.md](docs/client-compatibility.md)，发布结论见 [release-readiness.md](docs/release-readiness.md)。

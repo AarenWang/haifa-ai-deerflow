@@ -13,7 +13,7 @@ class CommandPolicyTest {
         CommandPolicy policy = new CommandPolicy(new DeerFlowProperties());
 
         assertThat(policy.evaluate("pwd", Path.of(".")).allowed()).isTrue();
-        assertThat(policy.evaluate("mvn -pl haifa-ai/haifa-ai-deerflow test", Path.of(".")).allowed()).isTrue();
+        assertThat(policy.evaluate("mvn -pl deerflow test", Path.of(".")).allowed()).isTrue();
     }
 
     @Test

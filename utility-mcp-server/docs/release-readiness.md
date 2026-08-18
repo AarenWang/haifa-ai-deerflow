@@ -6,8 +6,8 @@ The utility service and DeerFlow connection have automated offline protocol/cont
 
 ## Verified release evidence
 
-- Current change: `mvn -pl haifa-ai/haifa-ai-utility-mcp-server test`: PASS (39 tests, 0 failures/errors/skips).
-- `mvn -pl haifa-ai/haifa-ai-deerflow -am verify`: PASS; the reactor also verifies utility, and DeerFlow ran 478 tests with 0 failures, 0 errors and 4 pre-existing skips.
+- Current change: `mvn -pl utility-mcp-server test`: PASS (39 tests, 0 failures/errors/skips).
+- `mvn -pl deerflow -am verify`: PASS; the reactor also verifies utility, and DeerFlow ran 478 tests with 0 failures, 0 errors and 4 pre-existing skips.
 - The versioned contract snapshot contains exactly 19 tools and is checked without automatic snapshot rewriting.
 - DeerFlow starts a real local utility Streamable HTTP server in its integration test and performs initialize, list and call through the production client path.
 - `git diff --check`: PASS. Research documents 44 and 45 are unchanged; Fetch remains disabled in the production topology.
