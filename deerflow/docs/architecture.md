@@ -1,273 +1,203 @@
-# haifa-ai-deerflow 架构说明
+# DeerFlow 架构说明
 
-本文按当前代码事实维护，主要依据 `pom.xml`、`src/main/java` 和 `src/main/resources/application.yml`。历史设计文档或旧 pipeline 术语不作为事实来源。
+本文描述 `deerflow` 模块当前生效的架构。事实依据依次为当前入口、配置、源码和自动化测试；保留的实验性 Graph 不作为当前主链路。
 
-## 模块定位
+## 1. 系统定位
 
-`haifa-ai-deerflow` 是一个 Java / Spring Boot WebFlux 实现的 DeerFlow 风格 Agent Runtime。它提供：
+DeerFlow 是一个 Java / Spring Agent Runtime 与应用后端。它通过 WebFlux 暴露 REST / SSE API，把模型推理、工具调用、人工门禁、研究状态和文件产物组织成可观测、可挂起、可恢复的 Run。
 
-- `POST /api/deerflow/runs/stream` 的 SSE 运行接口。
-- thread、run、message、event、model step、tool call、tool execution 等运行审计。
-- Spring AI `ChatClient` 模型接入；未注入真实模型 provider 时使用 fallback model client。
-- 统一的 agent loop / graph runtime，支持 chat 与 research 两类运行模式。
-- 文件、上传文件、web search/fetch、image search、脚本、bash、todo、clarification、subagent、evidence/claim/citation 等工具。
-- SQLite + JPA 持久化运行状态，文件系统持久化 uploads、outputs、skills 和 artifact registry。
-- deep research 当前通过 `RunMode.RESEARCH`、`deep-research` skill、middleware、research observer、store 和工具链实现，不再依赖早期独立 pipeline UI 领域模型。
+三个仓库模块的职责如下：
 
-主类是 `org.wrj.haifa.ai.deerflow.DeerFlowApplication`。
+| 模块 | 职责 | 运行进程 |
+| --- | --- | --- |
+| `deerflow` | Agent Runtime、REST/SSE、Graph、数据与工具治理 | Spring Boot，端口 `8095` |
+| `deerflow-frontend` | 任务输入、SSE Activity Trace、答案和产物工作区 | Vite，端口 `5173` |
+| `utility-mcp-server` | 天气、时间、汇率、节假日、计算、百科和 Microsoft Learn 工具 | Spring Boot MCP，端口 `8091` |
 
-## 总体结构
+## 2. 总体结构
 
 ```mermaid
-flowchart LR
-    Client[Frontend / API Client] --> Web[WebFlux Controllers\n/api/deerflow/**]
-    Web --> Runtime[SimpleAgentRuntime]
-    Runtime --> ThreadRun[Thread + Run + Message stores]
-    Runtime --> Middleware[MiddlewareChain]
-    Runtime --> Route{Graph mode}
-    Route -->|GRAPH_FIRST / ACTIVE_CHAT / ACTIVE_RESEARCH| ChatGraph[GraphChatRuntime]
-    Route -->|OFF fallback| AgentLoop[AgentLoop]
-    Route -->|SHADOW| Shadow[GraphShadowRuntime]
-    Middleware --> Prompt[ModelPrompt]
-    ChatGraph --> Model[AgentModelClient]
-    AgentLoop --> Model
-    ChatGraph --> Tools[ToolRegistry + ToolPolicy]
-    AgentLoop --> Tools
-    Tools --> Providers[WebSearch/WebFetch providers]
-    Tools --> Sandbox[Local/Docker sandbox]
-    Tools --> ResearchStores[Research stores]
-    Runtime --> SQLite[(SQLite via JPA)]
-    ResearchStores --> SQLite
-    Tools --> Files[workspace / uploads / outputs]
+flowchart TB
+    subgraph Client["Client"]
+        UI["React Frontend"]
+        APIClient["REST Client"]
+    end
+
+    subgraph App["DeerFlow Runtime"]
+        Web["WebFlux Controllers"]
+        Runtime["SimpleAgentRuntime"]
+        Middleware["MiddlewareChain"]
+        Graph["GraphChatRuntime"]
+        Legacy["AgentLoop fallback"]
+        Model["AgentModelClient / Spring AI"]
+        Catalog["ToolRegistry"]
+        Policy["Tool Policy + Approval"]
+        Research["Research Stores + Observer"]
+        Memory["Memory + Persona"]
+    end
+
+    subgraph Execution["Execution Boundaries"]
+        Builtin["Built-in Tools"]
+        MCP["MCP Dynamic Tools"]
+        Sandbox["Local / Docker Sandbox"]
+    end
+
+    subgraph State["State"]
+        SQLite[("SQLite / JPA")]
+        UserData["Uploads / Workspace / Outputs"]
+        Artifact["Artifact JSON Registry"]
+    end
+
+    UI -->|"HTTP + SSE"| Web
+    APIClient --> Web
+    Web --> Runtime
+    Runtime --> Middleware
+    Runtime --> Graph
+    Runtime -. "Graph disabled" .-> Legacy
+    Graph --> Model
+    Legacy --> Model
+    Graph --> Catalog
+    Legacy --> Catalog
+    Catalog --> Policy
+    Policy --> Builtin
+    Policy --> MCP
+    Builtin --> Sandbox
+    Builtin --> Research
+    Runtime --> Memory
+    Runtime --> SQLite
+    Graph --> SQLite
+    Research --> SQLite
+    Sandbox --> UserData
+    Builtin --> Artifact
 ```
 
-核心包职责：
+## 3. 分层与边界
 
-| 包 | 代码职责 |
-| --- | --- |
-| `web` | REST/SSE 控制器，覆盖 runs、threads、uploads、artifacts、approvals、clarifications、memory/persona。 |
-| `agent` / `agent.loop` | `SimpleAgentRuntime`、legacy `AgentLoop`、事件、请求、运行配置、final-answer/todo observer。 |
-| `graph` / `graph.node` | `GraphChatRuntime`、`GraphResearchRuntime`、shadow graph、checkpoint、graph state、chat/research 节点。 |
-| `middleware` | prompt 增强链：budget、skills、summary、dynamic context、persona、memory、clarification、thread memory、todo、tool error。 |
-| `tool` | `AgentTool` 接口和内置工具实现。 |
-| `provider` | web search/fetch provider SPI、registry 和启动时配置校验。 |
-| `research` / `research.plan` | research plan、source/evidence、quality gate、progress、observer、report 支撑。 |
-| `source` / `evidence` / `claim` / `work` / `quality` / `budget` | 当前 deep research 统一领域状态，主要通过 JPA store 持久化。 |
-| `skill` | 文件系统 skill 解析、加载、slash skill 解析。 |
-| `sandbox` | bash/run_script 的命令策略、local/docker runner。 |
-| `artifact` / `upload` / `threadfile` | 上传文件、产物注册、thread 文件上下文。 |
-| `memory` | persona、长期记忆 fact/candidate 和 run 后 reflection。 |
-| `persistence` | JPA entity、repository、mapper、store、SQLite graph checkpoint。 |
+### API 层
 
-## 启动与配置事实
+`web` 包将 HTTP DTO 转换为 Runtime 请求，并保持 SSE 连接。控制器不直接实现 Agent Loop。
 
-当前 `application.yml` 的关键配置：
+主要入口：
 
-| 配置 | 当前 YAML 值 |
-| --- | --- |
-| HTTP 端口 | `server.port=8095` |
-| Web 类型 | `spring.main.web-application-type=reactive` |
-| SQLite | `jdbc:sqlite:${deerflow.persistence.sqlite.path}?journal_mode=WAL&busy_timeout=5000` |
-| SQLite path | `${user.dir}/data/deerflow.sqlite` |
-| Hikari pool | `maximum-pool-size=1`, `minimum-idle=1` |
-| JPA ddl | `spring.jpa.hibernate.ddl-auto=update` |
-| workspace | `${user.dir}/data/user-data/workspace` |
-| uploads | `${user.dir}/data/user-data/uploads` |
-| outputs | `${user.dir}/data/user-data/outputs` |
-| skills root | `${user.dir}/skills` |
-| Graph | `enabled=true`, `mode=GRAPH_FIRST`, `checkpoint.enabled=true` |
-| Research | `enabled=true`, `max-research-steps=100`, `max-research-sources=100`, `max-fetches-per-run=200` |
-| Tools | `write_file`、`str_replace`、`bash`、`run_script`、`tool_search` 当前 YAML 均开启 |
-| Sandbox | `enabled=true`, `backend=local-trusted`, `allow-host-execution=true`, `local-trusted.enabled=true`, `network-enabled=true` |
-| Approval | 当前 YAML `enabled=false` |
+- `RunController`：创建、取消、恢复和查询 Run。
+- `ThreadController`：Thread、Message 和 Thread 文件视图。
+- `UploadController` / `ArtifactController`：上传和产物访问。
+- `ApprovalController` / `ClarificationController`：人工交互。
+- `MemoryController`：Persona、长期记忆 fact 和 candidate。
+- `HealthController`：运行配置与 MCP 快照的脱敏健康视图。
 
-需要区分代码默认值和 YAML 值：`DeerFlowProperties` 代码默认 `bashEnabled=false`、`runScriptEnabled=false`、`sandbox.enabled=false`、`approval.enabled=true`，但当前 YAML 明确打开本地脚本/网络 sandbox，并关闭 approval。因此按仓库 YAML 启动时，本地工具能力较开放，适合开发实验，不适合直接作为公网生产默认配置。
+### Runtime 编排层
 
-## Skill/Tool runtime boundary
+`SimpleAgentRuntime` 是一次 Run 的应用编排入口，负责：
 
-Skills are instruction/resource packages, not Tools. The runtime never creates a Tool implementation per Skill; `tool_search` exposes callable Tools only. Executable skills use the generic `read_file -> write_file -> bash -> present_files` pipeline, stable `/mnt/skills` and `/mnt/user-data/**` virtual roots, explicit `ToolResult.Status`, and artifact delivery evidence. See [skill-tool-runtime.md](skill-tool-runtime.md) for the mount, status, image-provider, and final-answer contracts.
+1. 解析 Thread、RunMode、上传文件和 resume metadata。
+2. 创建或恢复 Run，写入用户消息和起始事件。
+3. 激活 Skill，初始化研究预算，应用 prompt middleware。
+4. 根据 Graph 配置选择 active runtime。
+5. 汇聚模型 / 工具事件并完成、挂起、取消或失败 Run。
+6. 写入最终消息、报告产物和记忆 reflection。
 
-The sandbox runtime has three explicit trust modes: `local-restricted`, `local-trusted`, and `docker`. Local Trusted requires two opt-in gates, inherits a filtered host toolchain, and never claims strong isolation. Runtime executables are resolved and probed before use, and sensitive environment values are redacted before Tool results are persisted or streamed. See [sandbox-runtime.md](sandbox-runtime.md) for the trust matrix and migration guide.
+Runtime 不直接实现具体搜索 Provider、MCP transport 或 Sandbox 进程细节。
 
-## HTTP API
+### Graph / Loop 层
 
-主要控制器和路径来自 `web` 包：
+默认 `GRAPH_FIRST` 使用 `GraphChatRuntime`。其主节点为：
 
-| 能力 | 路径 |
-| --- | --- |
-| 健康检查 | `GET /api/deerflow/health` |
-| 创建并流式运行 | `POST /api/deerflow/runs/stream` |
-| 恢复 run | `POST /api/deerflow/runs/{runId}/resume` |
-| run 查询 | `GET /api/deerflow/runs/{runId}` |
-| run 明细 | `/events`, `/observability`, `/todos`, `/approvals`, `/tool-executions`, `/tool-calls`, `/model-steps`, `/activity`, `/skill-activations` |
-| research 查询 | `/sources`, `/evidence`, `/plan`, `/progress`, `/quality-gate`, `/work-items`, `/claims`, `/citations`, `/quality`, `/budget` |
-| threads | `POST/GET /api/deerflow/threads`, `GET/PATCH /api/deerflow/threads/{threadId}`, `/runs`, `/messages`, `/files`, `/recommend-questions` |
-| uploads | `POST/GET /api/deerflow/uploads`, `GET/DELETE /api/deerflow/uploads/{fileId}`, `GET /content` |
-| artifacts | `GET /api/deerflow/artifacts`, `GET /{artifactId}`, `/raw`, `/download` |
-| approvals | `GET /api/deerflow/approvals/pending`, `/run/{runId}`, `/{approvalId}`, `/config`, `POST /{approvalId}/decision` |
-| clarifications | `GET /api/deerflow/clarifications/pending`, `POST /api/deerflow/clarifications/{clarificationId}/answer` |
-| memory/persona | `GET/PUT /api/deerflow/persona`, memory facts/candidates CRUD/approve/reject |
+```text
+prepare_run
+  -> load_context
+  -> assemble_model_input
+  -> call_model
+  -> parse_model_output
+     -> final_answer_gate -> finalize
+     -> approval_gate -> execute_tools -> clarification_gate -> assemble_model_input
+```
 
-用户身份由 `X-User-Id` 解析，缺省为 `default-user`。
+Graph 在节点边界记录 checkpoint。需要 clarification 或 approval 时，Run 进入 `SUSPENDED`；恢复请求校验原 Run 与 Thread 后，从 checkpoint 指向的节点继续。
 
-## Run 生命周期
+`AgentLoop` 是关闭 Graph 时的兼容路径。`GraphResearchRuntime` 与 `ResearchAgentGraph` 有独立实现和测试，但 `SimpleAgentRuntime` 当前不会把它们作为 research active path；详见[实现状态](implementation-status.md)。
 
-`SimpleAgentRuntime` 是当前入口运行时：
+### Model 层
 
-1. 创建或复用 thread，创建 run，写入 USER message。
-2. 组装 run metadata：mode、userId、上传文件数、research options、resume metadata 等。
-3. research mode 自动激活 `deep-research` skill，并初始化 skill activation、budget ledger、quality assessment、thread file 等可用状态。
-4. 通过 `MiddlewareChain` 生成 `ModelPrompt`。
-5. 根据 graph 配置选择执行路径。
-6. 运行中事件通过 `AgentEventStore`、`ModelStepStore`、`ToolCallStore`、`ToolExecutionStore` 等持久化。
-7. 终态事件驱动 run 状态更新为 completed、failed、suspended 或 cancelled。
-8. run 完成后可异步触发 `MemoryReflectionService.reflectAsync`。
-9. research mode 完成后 `finishResearchDelivery` 会汇总 source/evidence/quality 信息，并在需要时通过 `ReportWriterService` 生成 Markdown artifact。
+Runtime 面向 `AgentModelClient`，Provider 适配通过 Maven profile 装配：
 
-### Clarification resume
+- `openai`：OpenAI-compatible Chat Completions。
+- `google-genai`：Google 原生 GenAI，保留 Gemini 工具调用所需元数据。
+- 无真实 Provider：fallback client，仅用于启动和拓扑验证。
 
-澄清恢复不是继续原 run，而是创建同 thread 下的新 run，并在 metadata 中写入：
+模型返回正常文本或结构化 tool calls。Runtime 不从普通文本中猜测或解析伪造的工具调用。
 
-- `resumedFromRunId`
-- `clarificationId`
-- `resumeType=clarification`
+### Tool / MCP / Skill 层
 
-当前代码事实：
+- `ToolRegistry` 合并 Spring Bean 形式的内置 Tool 与当前 MCP snapshot 的动态 Tool。
+- `ToolPolicyService` 做工具可见性、模式、风险和能力约束。
+- `ApprovalPolicyService` 决定调用是否允许、拒绝或要求人工审批。
+- `McpConnectionManager` 管理连接启动、发现、刷新、last-known-good snapshot 和失败状态。
+- Skill 是模型指令、脚本、模板和引用资源的包，不是 Spring `AgentTool`；Skill 可引导模型调用现有原子工具。
 
-- `ClarificationMiddleware` 将已回答的澄清内容注入 prompt。
-- USER message 保留原始任务文本，澄清答案不再替代原始任务。
-- 新 run 会从 `resumedFromRunId` 继承父 run 的 TodoList，保持任务约束连续性。
+工具结果会进入事件、tool call / execution 审计和下一轮模型上下文。工具执行幂等服务避免恢复时重复执行已确认完成的同一调用。
 
-## Graph 运行路径
+### Research 层
 
-`GraphRuntimeMode` 枚举包含：`OFF`、`SHADOW`、`GRAPH_FIRST`、`ACTIVE_CHAT`、`ACTIVE_RESEARCH`。
+`RESEARCH` 不切换到另一套孤立 Runtime，而是在统一 Agent Graph 中：
 
-当前关键事实：
+- 自动激活 `deep-research` Skill。
+- 调整最大步数、工具预算和 timeout。
+- 通过 observer 与 Tool 写入 plan、work item、source、evidence、claim、citation、quality 和 budget。
+- 在完成阶段生成 Markdown report artifact。
 
-- `DeerFlowProperties.Graph` 默认 `enabled=true`、`mode=GRAPH_FIRST`。
-- `SimpleAgentRuntime.shouldUseActiveChatGraph(...)` 对 chat 和 research 都可返回 true。
-- `SimpleAgentRuntime.shouldUseActiveResearchGraph(...)` 当前直接返回 `false`。
-- 因此，当前实际 active graph 路径以 `GraphChatRuntime` 为主；research mode 在 `GRAPH_FIRST` / `ACTIVE_RESEARCH` 下也走统一 chat graph，而不是直接进入 `GraphResearchRuntime`。
-- `GraphResearchRuntime` 和 `ResearchAgentGraph` 仍存在于代码中，但目前不是 `SimpleAgentRuntime` 的 active research 执行入口。
+完整数据链见 [Deep Research](deep-research.md)。
 
-### GraphChatRuntime
+## 4. 持久化与文件状态
 
-节点常量来自 `GraphChatRuntime`：
-
-`load_context -> apply_prompt_middlewares -> call_model -> parse_model_output -> approval_gate -> clarification_gate -> execute_tools -> call_model ... -> final_answer_gate -> finalize`
-
-主要行为：
-
-- `ChatApplyMiddlewaresNode` 复用 middleware 产出的 prompt。
-- `ChatCallModelNode` 使用 provider 结构化 `ModelResponse.toolCalls()`；graph 路径不再依赖手写 XML/Markdown 工具调用解析。
-- `ChatExecuteToolsNode` 执行 tool registry 中的工具，并将成功、拒绝、未找到、失败统一转为 observation 写回 message window。
-- `ChatFinalAnswerGateNode` 调用 loop observer 做 `shouldContinue` 和 final-answer gate。若同一拒绝指令重复出现 3 次，会以 metadata 标记强制终止，避免无限循环。
-- `ChatFinalizeNode` 负责生成终态事件和 accepted final answer。
-
-### ResearchAgentGraph
-
-`ResearchAgentGraph` 当前定义了独立 research graph 节点：
-
-`create_or_load_plan -> todo_sync -> dispatch_dimensions -> search_sources -> fetch_sources -> extract_evidence -> quality_gate -> replan -> verify_citations -> write_report`
-
-但如上所述，当前 `SimpleAgentRuntime` 没有主动进入 `GraphResearchRuntime`，所以这条 graph 更像保留/实验性路径。文档和 UI 不应再把它当作当前 deep research 主流程的唯一来源。
-
-## Deep Research 当前模型
-
-当前 deep research 是统一 agent runtime 下的 research mode，而不是前端早期 pipeline 独立流程。代码上的组成：
-
-- `RunMode.RESEARCH`：请求模式。
-- `deep-research` skill：research mode 自动激活，并通过 skill/middleware 影响 prompt 和工具可见性。
-- `TodoMiddleware` + `WriteTodosTool` + `DefaultAgentLoopObserver`：要求复杂任务维护 TodoList，final answer 前检查 Todo 完成度。
-- `ResearchLoopObserver`：观察 web/search/fetch、evidence、claim、citation、quality 等事件，补齐研究状态。
-- `ResearchPlanner` / `ResearchPlanStore` / `ResearchProgressTracker` / `ResearchQualityGate`：研究计划、任务、进度、质量门。
-- `SourceStore`、`EvidenceItemStore`、`ClaimStore`、`CitationStore`、`BudgetLedgerStore`、`QualityAssessmentStore`、`ThreadFileStore`、`WorkItemStore`：统一 research domain state。
-- `ReportWriterService` + `ArtifactService`：输出报告文件并注册 artifact。
-
-UI 应围绕这些 run-scoped / thread-scoped 领域对象展示，而不是假设一个固定 pipeline 状态机一定按旧阶段推进。
-
-## Prompt 中间件
-
-`MiddlewareChain` 按 `@MiddlewareOrder` 排序。当前主要中间件：
-
-| Order | 中间件 | 职责 |
+| 状态 | 当前事实源 | 说明 |
 | --- | --- | --- |
-| 1 | `TokenBudgetMiddleware` | 基于字符/预估预算做输入限制。 |
-| 5 | `SkillActivationMiddleware` | 注入 active skills。 |
-| 8 | `SummarizationMiddleware` | 历史过长时摘要。 |
-| 10 | `DynamicContextMiddleware` | 注入工作目录、outputs、日期等运行上下文。 |
-| 12 | `PersonaMiddleware` | 注入当前用户 persona。 |
-| 15 | `StructuredMemoryMiddleware` | 注入长期记忆 facts。 |
-| 18 | `ClarificationMiddleware` | 阻止未回答澄清；resume 时注入澄清答案。 |
-| 20 | `ThreadMemoryMiddleware` | research mode 下注入 thread 研究记忆、sources、evidence、artifacts。 |
-| 25 | `TodoMiddleware` | 注入 TodoList 协议和当前 todo 状态。 |
-| 30 | `ToolErrorHandlingMiddleware` | 注入工具错误处理要求。 |
-| 50 | `ResearchPlanMiddleware` | research mode 下注入研究计划。 |
+| Thread / Run / Message / Event | SQLite + JPA | 运行与对话主记录 |
+| Model Step / Tool Call / Tool Execution | SQLite + JPA | 推理和工具审计 |
+| Graph checkpoint | SQLite checkpoint tables | 节点状态、next node 和外部引用 |
+| Research records | SQLite + JPA | plan、source、evidence、claim、citation、quality、budget 等 |
+| Memory / Persona | SQLite + JPA | 长期事实、候选记忆和 Persona |
+| Upload / Workspace / Output | 本地文件系统 | 位于 `data/user-data` 下 |
+| Artifact registry | 内存 + `artifacts.json` | 元数据不是数据库表 |
+| Pending approval | 进程内 Store | 不能跨进程重启恢复 |
 
-## 工具与安全边界
+默认 SQLite 使用 WAL、`busy_timeout=5000` 和 Hikari 单连接，适合本地单实例，不是多实例共享数据库方案。
 
-工具由 `ToolRegistry` 收集所有 `AgentTool` bean。当前内置工具覆盖：
+## 5. 事件与可观测性
 
-- 文件/工作区：`ls`、`glob`、`grep`、`read_file`、`read_workspace_file`、`list_workspace_files`、`write_file`、`str_replace`、`present_files`。
-- 上传文件：`list_uploaded_files`、`read_uploaded_file`。
-- Web/媒体：`web_search`、`web_fetch`、`image_search`、`view_image`。
-- 执行：`bash`、`run_script`。
-- 协作与控制：`task`、`write_todos`、`ask_clarification`、`tool_search`、`current_time`。
-- Research domain：`submit_evidence`、`submit_claim`、`submit_citation`。
-- 测试/离线：`mock_search`、`mock_fetch`。
+SSE 事件与数据库事件使用同一 `AgentEvent` 语义，覆盖 Run、模型、工具、研究、审批、澄清、产物和错误。客户端断开不等于事件丢失，可通过以下接口回查：
 
-`ToolPolicyService` 根据全局配置、sandbox 状态、run mode 和 skill allowed tools 判断工具是否可见/可执行。`CommandPolicy` 对 bash/run_script 做命令 allowlist、deny pattern、路径越界和危险命令检查。
+- `GET /api/deerflow/runs/{runId}/events`
+- `GET /api/deerflow/runs/{runId}/observability`
+- `GET /api/deerflow/runs/{runId}/activity`
+- `GET /api/deerflow/runs/{runId}/model-steps`
+- `GET /api/deerflow/runs/{runId}/tool-calls`
+- `GET /api/deerflow/runs/{runId}/tool-executions`
 
-当前 YAML 中 approval 关闭，因此 `ApprovalPolicyService` 不会默认拦截高风险工具；若要用于共享环境，应显式打开 approval 或改用更强隔离的 docker sandbox。
+MCP 健康信息只暴露连接状态、快照版本、工具数量和脱敏错误，不返回 token、完整 URL query、Schema 或工具参数。
 
-## Web provider
+## 6. 安全边界
 
-当前注册实现：
+当前 `application.yml` 是可信本地开发配置：
 
-| 类型 | 实现 |
-| --- | --- |
-| `web_search` | `aliyun`, `duckduckgo` |
-| `web_fetch` | `aliyun`, `jina` |
+- `sandbox.backend=local-trusted`
+- 宿主执行与网络开启
+- `approval.enabled=false`
+- MCP utility connection 默认 required
 
-`ProviderConfigurationValidator` 在应用启动时校验配置的 provider 是否有对应 bean；对需要 API key 的 provider，也会校验 key 是否存在。枚举里预留但未注册 bean 的 provider 不能直接配置使用。
+共享或生产环境至少应：
 
-## 持久化与文件状态
+1. 切换到经审查的 Docker / 远端隔离执行环境。
+2. 关闭不必要的宿主命令、脚本语言、网络和环境变量透传。
+3. 启用 approval 并为写文件、网络和脚本定义策略。
+4. 给 HTTP API 增加认证、授权、租户隔离与限流。
+5. 使用密钥系统注入 Provider / MCP 凭据，不写入 YAML、日志或事件。
+6. 替换单实例 SQLite、本地文件和内存 approval 状态。
 
-SQLite/JPA 主要表：
+## 7. 进一步阅读
 
-| 状态 | 表 |
-| --- | --- |
-| threads | `deerflow_threads` |
-| runs | `deerflow_runs` |
-| messages | `deerflow_messages` |
-| events | `deerflow_events` |
-| model steps | `deerflow_model_steps` |
-| tool calls | `deerflow_tool_calls` |
-| tool executions | `deerflow_tool_executions` |
-| loop runs | `deerflow_agent_loop_runs` |
-| uploads | `deerflow_uploads` |
-| todos | `deerflow_todos` |
-| clarifications | `deerflow_clarifications` |
-| persona | `deerflow_personas` |
-| memory facts/candidates | `deerflow_memory_facts`, `deerflow_memory_candidates` |
-| research plans/tasks | `deerflow_research_plans`, `deerflow_research_tasks` |
-| research sources/mappings | `deerflow_research_sources`, `deerflow_research_source_mappings` |
-| legacy evidence | `deerflow_evidence_items` |
-| graph checkpoints | `agent_graph_checkpoints`, `agent_graph_checkpoint_external_refs` |
-
-其他状态：
-
-- `ArtifactService` 将 artifact registry 保存在内存中，并同步到 `${userDataRoot}/artifacts.json`；artifact 文件必须位于 outputs root 下。
-- uploads 文件内容保存在 uploads root，元数据在 SQLite。
-- outputs 文件包括报告、工具外置输出、sandbox 脚本目录等。
-- `ApprovalStore` 当前实现为内存 `ConcurrentHashMap`，重启后不保留 pending approval。
-- `SQLiteResearchPlanStore` 是 `ResearchPlanStore` 的 `@Primary` 实现；`InMemoryResearchPlanStore` 仍存在但不是默认注入对象。
-
-## 当前实现边界
-
-- 当前默认是本地开发/实验配置：local sandbox、脚本执行、网络访问开启，approval 关闭。
-- SQLite 使用 WAL、`busy_timeout=5000` 且 Hikari pool size 为 1，降低单进程并发写锁概率；多进程或多实例访问同一 SQLite 文件仍可能出现锁竞争。
-- `GraphResearchRuntime` 存在但当前未被 `SimpleAgentRuntime` 作为 active research 入口调用。
-- Deep research 观测质量依赖工具结果是否被正确沉淀到 source/evidence/claim/citation/quality stores；UI 中空字段通常应先按后端观测链路排查。
-- `mcp-enabled` 有配置项，但当前主运行链路没有看到 MCP 工具接入实现。
-- 本模块是 Java DeerFlow runtime 原型，不是 Python deer-flow 的等价完整实现。
+- [Runtime 执行链路](runtime-execution.md)
+- [Deep Research](deep-research.md)
+- [MCP 运维与治理](mcp-operations.md)
+- [Sandbox Runtime](sandbox-runtime.md)
+- [Skill / Tool Runtime](skill-tool-runtime.md)
