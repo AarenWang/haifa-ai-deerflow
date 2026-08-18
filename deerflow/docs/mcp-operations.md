@@ -1,8 +1,19 @@
 # DeerFlow MCP operations and governance
 
+## Default startup
+
+The repository configuration enables MCP by default and marks the local `utility` Streamable HTTP connection as required. Start `utility-mcp-server` before DeerFlow:
+
+```powershell
+mvn -pl utility-mcp-server -am spring-boot:run
+mvn -pl deerflow -am spring-boot:run
+```
+
+The default endpoint is `http://127.0.0.1:8091/mcp`. For a backend-only startup check, set both `HAIFA_AI_DEERFLOW_MCP_ENABLED=false` and `HAIFA_DEERFLOW_MCP_ENABLED=false` before starting DeerFlow. The first overrides the compatibility `mcp-enabled` property; the second overrides nested `mcp.enabled`. `DeerFlowProperties.isMcpEnabled()` combines them with OR.
+
 ## Topologies
 
-Default production uses one `utility` Streamable HTTP connection. It owns WEATHER, TIME, CURRENCY, HOLIDAY_WORKDAY, CALCULATION, UNIT_CONVERSION and ENCYCLOPEDIA groups. The built-in DeerFlow fetch provider owns WEB_FETCH.
+The repository default topology uses one `utility` Streamable HTTP connection. It owns WEATHER, TIME, CURRENCY, HOLIDAY_WORKDAY, CALCULATION, UNIT_CONVERSION and ENCYCLOPEDIA groups. The built-in DeerFlow fetch provider owns WEB_FETCH.
 
 A compatibility profile may enable one of `open-meteo`, `time-reference`, `frankfurter-remote`, `wikipedia-reference`, or `fetch` only after recording a controlled `tools/list` fixture and pinning its original tool names in `allowed-tools`. Set the corresponding capability owner in the same configuration change. Empty allowlists expose nothing and are intentional defaults.
 
@@ -35,4 +46,4 @@ Troubleshooting:
 - zero tools: verify explicit allowlist, local risk mapping and capability owner.
 - owner conflict: atomically choose one provider for the capability; do not expose semantic duplicates.
 
-Rollback is `haifa.ai.deerflow.mcp.enabled=false`, followed by application restart. This removes MCP tools without restoring the former placeholder.
+Rollback sets both `haifa.ai.deerflow.mcp-enabled=false` and `haifa.ai.deerflow.mcp.enabled=false`, followed by application restart. This removes MCP tools without restoring the former placeholder.
