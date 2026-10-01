@@ -19,7 +19,15 @@ public final class UtilityNetworkProxyConfiguration {
             "open-meteo-air-quality",
             "frankfurter",
             "nager-date",
-            "wikimedia");
+            "wikimedia",
+            "crossref",
+            "openalex",
+            "maven-central",
+            "npm-registry",
+            "pypi",
+            "osv",
+            "google-dns",
+            "world-bank");
 
     private UtilityNetworkProxyConfiguration() { }
 

@@ -11,6 +11,11 @@
 - 本地安全计算：`calculate`、`unit_convert`
 - Wikimedia：`wikipedia_search`、`wikipedia_summary`
 - Microsoft Learn：`microsoft_docs_search`、`microsoft_docs_fetch`、`microsoft_code_sample_search`
+- Research：Crossref `paper_search`、`paper_get`、`doi_lookup`；OpenAlex `author_search`
+- Package Registry：`package_search`、`package_info`、`package_versions`、`package_latest`，覆盖 Maven Central、npm 与 PyPI（PyPI 精确包元数据、版本与 latest；搜索仅支持 Maven/npm）
+- OSV：`vulnerability_query`、`vulnerability_get`
+- Internet：Google Public DNS `dns_query`
+- World Bank：`indicator_search`、`indicator_data`
 
 所有工具返回等价的 JSON TextContent 与 `structuredContent`，业务错误使用 `isError=true`。公共名称和 Schema 是 v1 版本化合同，上游 DTO 变化不得直接改变合同。
 
@@ -38,6 +43,10 @@ mvn -pl utility-mcp-server -am spring-boot:run
 
 Provider base URL 只能来自服务端配置，生产仅允许 HTTPS；重定向关闭，单次响应、并发、缓存、超时、一次幂等重试和 circuit breaker 均有边界。Nager.Date 不能可靠表达中国调休时，工作日工具会明确返回不支持，而不是猜测。
 
+OSV 的查询接口是只读语义的 JSON POST，使用同样的 HTTPS、响应大小、并发、超时、一次重试和 circuit breaker 边界，但不缓存 POST 响应。
+
+RDAP 暂不通过公共 bootstrap redirect 接入：这会打破当前固定 Provider host 且禁用重定向的出站安全边界。后续如加入 RDAP，应实现基于 IANA bootstrap registry 的专用受控客户端，而不是开放通用 redirect/fetch。
+
 ## 外部 Provider 代理
 
 代理连接参数兼容 DeerFlow 的 `LLM_NETWORK_PROXY_*` 环境变量，也可以使用 Utility MCP 专属变量覆盖。Provider 默认直连，只有名称出现在 `UTILITY_MCP_PROXY_PROVIDERS` 逗号分隔清单中才会经过代理。
@@ -50,7 +59,7 @@ $env:UTILITY_MCP_PROXY_PROVIDERS='wikimedia'
 mvn -pl utility-mcp-server -am spring-boot:run
 ```
 
-多个 Provider 使用逗号分隔，例如 `UTILITY_MCP_PROXY_PROVIDERS=wikimedia,open-meteo,frankfurter`。支持的名称为 `open-meteo`、`open-meteo-geocoding`、`open-meteo-air-quality`、`frankfurter`、`nager-date`、`wikimedia`；名称忽略首尾空格和大小写，未知名称会导致启动失败，避免因拼写错误而静默直连。
+多个 Provider 使用逗号分隔，例如 `UTILITY_MCP_PROXY_PROVIDERS=wikimedia,open-meteo,frankfurter`。支持的名称为 `open-meteo`、`open-meteo-geocoding`、`open-meteo-air-quality`、`frankfurter`、`nager-date`、`wikimedia`、`crossref`、`openalex`、`maven-central`、`npm-registry`、`pypi`、`osv`、`google-dns`、`world-bank`；名称忽略首尾空格和大小写，未知名称会导致启动失败，避免因拼写错误而静默直连。
 
 ## Microsoft Learn
 

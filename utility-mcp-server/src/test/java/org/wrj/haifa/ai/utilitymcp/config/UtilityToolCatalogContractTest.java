@@ -11,24 +11,32 @@ import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.wrj.haifa.ai.utilitymcp.provider.JsonPostProvider;
 import org.wrj.haifa.ai.utilitymcp.provider.JsonProvider;
 import org.wrj.haifa.ai.utilitymcp.provider.ProviderPayload;
 import org.wrj.haifa.ai.utilitymcp.tool.CalculatorService;
 import org.wrj.haifa.ai.utilitymcp.tool.CurrencyService;
 import org.wrj.haifa.ai.utilitymcp.tool.HolidayService;
+import org.wrj.haifa.ai.utilitymcp.tool.InternetService;
 import org.wrj.haifa.ai.utilitymcp.tool.MicrosoftLearnService;
+import org.wrj.haifa.ai.utilitymcp.tool.OsvService;
+import org.wrj.haifa.ai.utilitymcp.tool.PackageRegistryService;
+import org.wrj.haifa.ai.utilitymcp.tool.ResearchService;
 import org.wrj.haifa.ai.utilitymcp.tool.TimeService;
 import org.wrj.haifa.ai.utilitymcp.tool.UnitConversionService;
 import org.wrj.haifa.ai.utilitymcp.tool.WeatherService;
 import org.wrj.haifa.ai.utilitymcp.tool.WikipediaService;
+import org.wrj.haifa.ai.utilitymcp.tool.WorldBankService;
 
 class UtilityToolCatalogContractTest {
 
     @Test
-    void publishesExactlyTheNineteenVersionedUtilityContracts() throws Exception {
+    void publishesExactlyTheThirtyTwoVersionedUtilityContracts() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         var emptyBody = mapper.readTree("{}");
         JsonProvider empty = (path, query) -> new ProviderPayload(emptyBody,
+                URI.create("https://fixture.example" + path), OffsetDateTime.now(), false);
+        JsonPostProvider emptyPost = (path, body) -> new ProviderPayload(emptyBody,
                 URI.create("https://fixture.example" + path), OffsetDateTime.now(), false);
         UtilityToolConfiguration configuration = new UtilityToolConfiguration();
         var catalog = configuration.utilityToolCatalog(
@@ -40,16 +48,24 @@ class UtilityToolCatalogContractTest {
                 new HolidayService(empty),
                 new WikipediaService(empty),
                 new MicrosoftLearnService((toolName, arguments) ->
-                        org.wrj.haifa.ai.utilitymcp.mcp.UtilityResult.local(Map.of("content", "fixture"))));
+                        org.wrj.haifa.ai.utilitymcp.mcp.UtilityResult.local(Map.of("content", "fixture"))),
+                new ResearchService(empty, empty),
+                new PackageRegistryService(empty, empty, empty),
+                new OsvService(emptyPost, empty),
+                new InternetService(empty),
+                new WorldBankService(empty));
 
-        assertThat(catalog.tools()).hasSize(19);
+        assertThat(catalog.tools()).hasSize(32);
         assertThat(catalog.tools().stream().map(tool -> tool.contract().name()).collect(java.util.stream.Collectors.toSet()))
                 .isEqualTo(Set.of(
                         "location_search", "weather_current", "weather_forecast", "air_quality",
                         "time_now", "time_convert", "currency_rate", "currency_convert",
                         "holiday_list", "holiday_next", "workday_is_workday", "workday_add",
                         "calculate", "unit_convert", "wikipedia_search", "wikipedia_summary",
-                        "microsoft_docs_search", "microsoft_docs_fetch", "microsoft_code_sample_search"));
+                        "microsoft_docs_search", "microsoft_docs_fetch", "microsoft_code_sample_search",
+                        "paper_search", "paper_get", "doi_lookup", "author_search",
+                        "package_search", "package_info", "package_versions", "package_latest",
+                        "vulnerability_query", "vulnerability_get", "dns_query", "indicator_search", "indicator_data"));
         assertThat(catalog.tools()).allSatisfy(tool -> {
             assertThat(tool.contract().inputSchema().type()).isEqualTo("object");
             assertThat(tool.contract().inputSchema().additionalProperties()).isFalse();
