@@ -59,6 +59,11 @@ public class UtilityMcpProperties {
         private final Provider googleDns = new Provider("https://dns.google");
         private final Provider worldBank = new Provider("https://api.worldbank.org");
 
+        public Providers() {
+            npmRegistry.setMaxResponseBytes(16_777_216);
+            npmRegistry.setAcceptHeader("application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*; q=0.1");
+        }
+
         public Provider getOpenMeteo() { return openMeteo; }
         public Provider getOpenMeteoGeocoding() { return openMeteoGeocoding; }
         public Provider getOpenMeteoAirQuality() { return openMeteoAirQuality; }
@@ -119,6 +124,7 @@ public class UtilityMcpProperties {
         private int maxConcurrent = 16;
         private Duration cacheTtl = Duration.ofMinutes(10);
         private boolean allowHttpForTests;
+        private String acceptHeader = "application/json";
 
         public Provider(String baseUrl) { this.baseUrl = URI.create(baseUrl); }
         public URI getBaseUrl() { return baseUrl; }
@@ -135,5 +141,7 @@ public class UtilityMcpProperties {
         public void setCacheTtl(Duration cacheTtl) { this.cacheTtl = cacheTtl; }
         public boolean isAllowHttpForTests() { return allowHttpForTests; }
         public void setAllowHttpForTests(boolean allowHttpForTests) { this.allowHttpForTests = allowHttpForTests; }
+        public String getAcceptHeader() { return acceptHeader; }
+        public void setAcceptHeader(String acceptHeader) { this.acceptHeader = acceptHeader; }
     }
 }

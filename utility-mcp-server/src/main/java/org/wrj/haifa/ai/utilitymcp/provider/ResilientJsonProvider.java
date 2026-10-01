@@ -179,7 +179,7 @@ public class ResilientJsonProvider implements JsonProvider {
         try {
             return restClient.get()
                     .uri(uri)
-                    .header("Accept", "application/json")
+                    .header("Accept", properties.getAcceptHeader() != null ? properties.getAcceptHeader() : "application/json")
                     .header("User-Agent", "haifa-utility-mcp/1.0")
                     .exchange((request, response) -> readResponse(uri, response));
         }

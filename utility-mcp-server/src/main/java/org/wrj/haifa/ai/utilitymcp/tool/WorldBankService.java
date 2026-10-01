@@ -1,6 +1,8 @@
 package org.wrj.haifa.ai.utilitymcp.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,7 +25,8 @@ public class WorldBankService {
         ToolArguments args = new ToolArguments(arguments);
         String query = safeSearch(args.requiredString("query", 200));
         int limit = args.intValue("limit", 10, 1, 50);
-        ProviderPayload payload = worldBank.get("/v2/sources/2/search/" + query,
+        String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
+        ProviderPayload payload = worldBank.get("/v2/sources/2/search/" + encodedQuery,
                 Map.of("format", "json", "per_page", Math.max(limit, 20)));
         JsonNode sources = payload.body().path("source");
         List<Map<String, Object>> results = new ArrayList<>();

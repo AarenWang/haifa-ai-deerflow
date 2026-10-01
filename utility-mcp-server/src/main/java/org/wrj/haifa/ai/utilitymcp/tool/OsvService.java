@@ -102,8 +102,12 @@ public class OsvService {
             }
         }
         if (!references.isEmpty()) data.put("references", references);
+        boolean partial = (refs.isArray() && refs.size() > references.size())
+                || (summary != null && summary.length() > 2_000)
+                || (details != null && details.length() > 12_000)
+                || (vuln.path("aliases").isArray() && vuln.path("aliases").size() > aliases.size());
         return UtilityResult.external(data, "osv", payload.sourceUri(), payload.retrievedAt(),
-                payload.cached(), refs.isArray() && refs.size() > references.size(), null, Map.of());
+                payload.cached(), partial, null, Map.of());
     }
 
     private static String truncate(String value, int max) {

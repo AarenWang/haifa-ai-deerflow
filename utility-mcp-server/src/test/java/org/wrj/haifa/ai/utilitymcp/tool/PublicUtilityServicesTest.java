@@ -75,6 +75,8 @@ class PublicUtilityServicesTest {
                 .contains("org.example:demo");
         assertThat(service.latest(Map.of("ecosystem", "NPM", "package", "demo")).data())
                 .containsEntry("latestVersion", "2.0.0");
+        assertThat(service.latest(Map.of("ecosystem", "NPM", "package", "@scope/demo")).data())
+                .containsEntry("latestVersion", "2.0.0");
         assertThat(service.versions(Map.of("ecosystem", "PYPI", "package", "demo")).data().get("versions").toString())
                 .contains("3.0.0");
     }
@@ -95,9 +97,23 @@ class PublicUtilityServicesTest {
                 .containsEntry("count", 1);
         assertThat(service.query(Map.of("ecosystem", "NPM", "package", "demo", "version", "1.0.0"))
                 .data().get("vulnerabilities").toString()).contains("CVE-2026-0001");
-        assertThat(service.get(Map.of("id", "OSV-2026-1")).data())
+        var res = service.get(Map.of("id", "OSV-2026-1"));
+        assertThat(res.data())
                 .containsEntry("summary", "Example issue")
                 .containsEntry("details", "Detailed advisory");
+        assertThat(res.meta().get("partial")).isEqualTo(false);
+
+        JsonProvider osvGetLongSummary = provider("""
+                {"id":"OSV-2026-2","summary":"%s","details":"advisory"}
+                """.formatted("s".repeat(2_001)));
+        OsvService serviceLongSummary = new OsvService(osv, osvGetLongSummary);
+        assertThat(serviceLongSummary.get(Map.of("id", "OSV-2026-2")).meta().get("partial")).isEqualTo(true);
+
+        JsonProvider osvGetManyAliases = provider("""
+                {"id":"OSV-2026-3","aliases":%s}
+                """.formatted("[" + String.join(",", java.util.Collections.nCopies(35, "\"CVE-TEST\"")) + "]"));
+        OsvService serviceManyAliases = new OsvService(osv, osvGetManyAliases);
+        assertThat(serviceManyAliases.get(Map.of("id", "OSV-2026-3")).meta().get("partial")).isEqualTo(true);
     }
 
     @Test

@@ -155,14 +155,24 @@ public class PackageRegistryService {
 
     private UtilityResult npmInfo(String packageName) {
         String name = npmName(packageName);
-        ProviderPayload payload = npm.get("/" + name, Map.of());
+        String path = "/" + npmPath(name);
+        ProviderPayload payload;
+        try {
+            payload = npm.get(path + "/latest", Map.of());
+        }
+        catch (UtilityToolException ex) {
+            payload = npm.get(path, Map.of());
+        }
         JsonNode body = payload.body();
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("ecosystem", "NPM");
         data.put("package", body.path("name").asText(name));
         String description = JsonSupport.optionalText(body, "description");
         if (description != null) data.put("description", truncate(description, 2_000));
-        String latest = body.path("dist-tags").path("latest").asText(null);
+        String latest = body.path("version").asText(null);
+        if (latest == null) {
+            latest = body.path("dist-tags").path("latest").asText(null);
+        }
         if (latest != null) data.put("latestVersion", latest);
         String homepage = JsonSupport.optionalText(body, "homepage");
         if (homepage != null) data.put("homepage", homepage);
@@ -173,7 +183,7 @@ public class PackageRegistryService {
 
     private UtilityResult npmVersions(String packageName, int limit) {
         String name = npmName(packageName);
-        ProviderPayload payload = npm.get("/" + name, Map.of());
+        ProviderPayload payload = npm.get("/" + npmPath(name), Map.of());
         List<String> versions = objectKeys(payload.body().path("versions"), limit);
         return UtilityResult.external(Map.of("ecosystem", "NPM", "package", name, "versions", versions), "npm",
                 payload.sourceUri(), payload.retrievedAt(), payload.cached(),
@@ -219,6 +229,10 @@ public class PackageRegistryService {
             throw UtilityToolException.invalid("package is not a valid npm package name");
         }
         return name;
+    }
+
+    private static String npmPath(String name) {
+        return name.startsWith("@") ? name.replace("/", "%2F") : name;
     }
 
     private static String simplePackageName(String value) {
