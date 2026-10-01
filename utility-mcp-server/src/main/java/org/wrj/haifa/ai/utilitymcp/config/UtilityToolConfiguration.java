@@ -18,16 +18,22 @@ import org.wrj.haifa.ai.utilitymcp.mcp.ToolSchemas;
 import org.wrj.haifa.ai.utilitymcp.mcp.UtilityTool;
 import org.wrj.haifa.ai.utilitymcp.mcp.UtilityToolCatalog;
 import org.wrj.haifa.ai.utilitymcp.mcp.UtilityToolException;
+import org.wrj.haifa.ai.utilitymcp.provider.JsonPostProvider;
+import org.wrj.haifa.ai.utilitymcp.provider.JsonProvider;
 import org.wrj.haifa.ai.utilitymcp.tool.CalculatorService;
 import org.wrj.haifa.ai.utilitymcp.tool.CurrencyService;
 import org.wrj.haifa.ai.utilitymcp.tool.HolidayService;
+import org.wrj.haifa.ai.utilitymcp.tool.InternetService;
 import org.wrj.haifa.ai.utilitymcp.tool.MicrosoftLearnMcpClient;
 import org.wrj.haifa.ai.utilitymcp.tool.MicrosoftLearnService;
+import org.wrj.haifa.ai.utilitymcp.tool.OsvService;
+import org.wrj.haifa.ai.utilitymcp.tool.PackageRegistryService;
+import org.wrj.haifa.ai.utilitymcp.tool.ResearchService;
 import org.wrj.haifa.ai.utilitymcp.tool.TimeService;
 import org.wrj.haifa.ai.utilitymcp.tool.UnitConversionService;
 import org.wrj.haifa.ai.utilitymcp.tool.WeatherService;
 import org.wrj.haifa.ai.utilitymcp.tool.WikipediaService;
-import org.wrj.haifa.ai.utilitymcp.provider.JsonProvider;
+import org.wrj.haifa.ai.utilitymcp.tool.WorldBankService;
 
 @Configuration
 public class UtilityToolConfiguration {
@@ -85,6 +91,39 @@ public class UtilityToolConfiguration {
         return new MicrosoftLearnService(client);
     }
 
+
+    @Bean
+    ResearchService researchService(
+            @Qualifier("crossref") JsonProvider crossref,
+            @Qualifier("openAlex") JsonProvider openAlex) {
+        return new ResearchService(crossref, openAlex);
+    }
+
+    @Bean
+    PackageRegistryService packageRegistryService(
+            @Qualifier("mavenCentral") JsonProvider maven,
+            @Qualifier("npmRegistry") JsonProvider npm,
+            @Qualifier("pypi") JsonProvider pypi) {
+        return new PackageRegistryService(maven, npm, pypi);
+    }
+
+    @Bean
+    OsvService osvService(
+            @Qualifier("osv") JsonPostProvider provider,
+            @Qualifier("osvGet") JsonProvider getProvider) {
+        return new OsvService(provider, getProvider);
+    }
+
+    @Bean
+    InternetService internetService(@Qualifier("googleDns") JsonProvider provider) {
+        return new InternetService(provider);
+    }
+
+    @Bean
+    WorldBankService worldBankService(@Qualifier("worldBank") JsonProvider provider) {
+        return new WorldBankService(provider);
+    }
+
     @Bean
     UtilityToolCatalog utilityToolCatalog(
             TimeService timeService,
@@ -94,7 +133,12 @@ public class UtilityToolConfiguration {
             CurrencyService currencyService,
             HolidayService holidayService,
             WikipediaService wikipediaService,
-            MicrosoftLearnService microsoftLearnService) {
+            MicrosoftLearnService microsoftLearnService,
+            ResearchService researchService,
+            PackageRegistryService packageRegistryService,
+            OsvService osvService,
+            InternetService internetService,
+            WorldBankService worldBankService) {
         List<UtilityTool> tools = new ArrayList<>();
         tools.add(new SimpleUtilityTool(
                 ToolSchemas.tool("time_now", "Current time",
@@ -133,6 +177,11 @@ public class UtilityToolConfiguration {
         addHolidayTools(tools, holidayService);
         addWikipediaTools(tools, wikipediaService);
         addMicrosoftLearnTools(tools, microsoftLearnService);
+        addResearchTools(tools, researchService);
+        addPackageTools(tools, packageRegistryService);
+        addOsvTools(tools, osvService);
+        addInternetTools(tools, internetService);
+        addWorldBankTools(tools, worldBankService);
         return new UtilityToolCatalog(tools);
     }
 
@@ -266,6 +315,120 @@ public class UtilityToolConfiguration {
                 ToolSchemas.tool("microsoft_code_sample_search", "Search Microsoft code samples",
                         "Search official Microsoft and Azure code samples through the Microsoft Learn MCP service.",
                         ToolSchemas.object(code, "query"), true), service::searchCodeSamples));
+    }
+
+    private static void addResearchTools(List<UtilityTool> tools, ResearchService service) {
+        Map<String, Object> search = new LinkedHashMap<>();
+        search.put("query", ToolSchemas.string("Scholarly work search query", 500));
+        search.put("fromYear", ToolSchemas.integer("Earliest publication year", 1000, 2100, 1900));
+        search.put("toYear", ToolSchemas.integer("Latest publication year", 1000, 2100, 2100));
+        search.put("limit", ToolSchemas.integer("Maximum results", 1, 50, 10));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("paper_search", "Search scholarly works",
+                        "Search Crossref scholarly metadata and return bounded normalized paper records.",
+                        ToolSchemas.object(search, "query"), true), service::search));
+
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("paper_get", "Get paper by DOI",
+                        "Resolve an exact DOI through Crossref and return normalized scholarly metadata.",
+                        ToolSchemas.object(Map.of("doi", ToolSchemas.string("Digital Object Identifier", 300)), "doi"), true),
+                service::get));
+
+        Map<String, Object> lookup = new LinkedHashMap<>();
+        lookup.put("title", ToolSchemas.string("Paper title or bibliographic title text", 500));
+        lookup.put("author", ToolSchemas.string("Optional author name", 200));
+        lookup.put("year", ToolSchemas.integer("Optional publication year; zero means any year", 0, 2100, 0));
+        lookup.put("limit", ToolSchemas.integer("Maximum DOI candidates", 1, 20, 5));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("doi_lookup", "Find DOI candidates",
+                        "Find likely DOI candidates from title, optional author and optional publication year.",
+                        ToolSchemas.object(lookup, "title"), true), service::doiLookup));
+
+        Map<String, Object> author = new LinkedHashMap<>();
+        author.put("query", ToolSchemas.string("Author name search query", 300));
+        author.put("limit", ToolSchemas.integer("Maximum author results", 1, 50, 10));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("author_search", "Search scholarly authors",
+                        "Search OpenAlex authors and return identifiers, counts and recent affiliations.",
+                        ToolSchemas.object(author, "query"), true), service::authorSearch));
+    }
+
+    private static void addPackageTools(List<UtilityTool> tools, PackageRegistryService service) {
+        Map<String, Object> search = new LinkedHashMap<>();
+        search.put("ecosystem", ToolSchemas.enumeration("Registry ecosystem", "MAVEN", "NPM"));
+        search.put("query", ToolSchemas.string("Package search query", 300));
+        search.put("limit", ToolSchemas.integer("Maximum results", 1, 50, 10));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("package_search", "Search packages",
+                        "Search Maven Central or npm public package registries.",
+                        ToolSchemas.object(search, "ecosystem", "query"), true), service::search));
+
+        Map<String, Object> exact = new LinkedHashMap<>();
+        exact.put("ecosystem", ToolSchemas.enumeration("Registry ecosystem", "MAVEN", "NPM", "PYPI"));
+        exact.put("package", ToolSchemas.string("Package identity; Maven uses groupId:artifactId", 300));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("package_info", "Read package metadata",
+                        "Return normalized metadata for an exact Maven, npm or PyPI package.",
+                        ToolSchemas.object(exact, "ecosystem", "package"), true), service::info));
+
+        Map<String, Object> versions = new LinkedHashMap<>(exact);
+        versions.put("limit", ToolSchemas.integer("Maximum versions", 1, 100, 50));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("package_versions", "List package versions",
+                        "Return a bounded version list for an exact Maven, npm or PyPI package.",
+                        ToolSchemas.object(versions, "ecosystem", "package"), true), service::versions));
+
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("package_latest", "Get latest package version",
+                        "Return the registry-reported latest version for an exact Maven, npm or PyPI package.",
+                        ToolSchemas.object(exact, "ecosystem", "package"), true), service::latest));
+    }
+
+    private static void addOsvTools(List<UtilityTool> tools, OsvService service) {
+        Map<String, Object> query = new LinkedHashMap<>();
+        query.put("ecosystem", ToolSchemas.enumeration("Package ecosystem", "MAVEN", "NPM", "PYPI"));
+        query.put("package", ToolSchemas.string("Package identity used by OSV", 300));
+        query.put("version", ToolSchemas.string("Exact package version", 128));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("vulnerability_query", "Query package vulnerabilities",
+                        "Query OSV for known vulnerabilities affecting an exact public package version.",
+                        ToolSchemas.object(query, "ecosystem", "package", "version"), true), service::query));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("vulnerability_get", "Read vulnerability details",
+                        "Read bounded OSV vulnerability details by OSV, CVE or GHSA identifier when available.",
+                        ToolSchemas.object(Map.of("id", ToolSchemas.string("OSV vulnerability identifier", 128)), "id"), true),
+                service::get));
+    }
+
+    private static void addInternetTools(List<UtilityTool> tools, InternetService service) {
+        Map<String, Object> dns = new LinkedHashMap<>();
+        dns.put("name", ToolSchemas.string("DNS name to resolve", 253));
+        dns.put("type", ToolSchemas.enumeration("DNS record type", "A", "AAAA", "CNAME", "MX", "TXT", "NS", "CAA", "SRV", "PTR"));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("dns_query", "Query public DNS",
+                        "Resolve a bounded DNS query through Google Public DNS JSON API.",
+                        ToolSchemas.object(dns, "name", "type"), true), service::dnsQuery));
+    }
+
+    private static void addWorldBankTools(List<UtilityTool> tools, WorldBankService service) {
+        Map<String, Object> search = new LinkedHashMap<>();
+        search.put("query", ToolSchemas.string("World Development Indicators metadata search query", 200));
+        search.put("limit", ToolSchemas.integer("Maximum indicator matches", 1, 50, 10));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("indicator_search", "Search World Bank indicators",
+                        "Search World Development Indicators metadata and return matching indicator codes.",
+                        ToolSchemas.object(search, "query"), true), service::indicatorSearch));
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("indicator", ToolSchemas.string("World Bank indicator code", 100));
+        data.put("country", ToolSchemas.string("World Bank country or aggregate code", 64));
+        data.put("fromYear", ToolSchemas.integer("Earliest year", 1000, 2100, 2000));
+        data.put("toYear", ToolSchemas.integer("Latest year", 1000, 2100, 2100));
+        data.put("limit", ToolSchemas.integer("Maximum observations", 1, 500, 100));
+        tools.add(new SimpleUtilityTool(
+                ToolSchemas.tool("indicator_data", "Read World Bank indicator data",
+                        "Read a bounded World Bank indicator time series for one country or aggregate code.",
+                        ToolSchemas.object(data, "indicator", "country"), true), service::indicatorData));
     }
 
     private static Map<String, Object> coordinates() {

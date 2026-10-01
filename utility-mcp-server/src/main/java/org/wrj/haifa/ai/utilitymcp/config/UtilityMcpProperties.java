@@ -50,6 +50,19 @@ public class UtilityMcpProperties {
         private final Provider frankfurter = new Provider("https://api.frankfurter.app");
         private final Provider nagerDate = new Provider("https://date.nager.at");
         private final Provider wikimedia = new Provider("https://api.wikimedia.org");
+        private final Provider crossref = new Provider("https://api.crossref.org");
+        private final Provider openAlex = new Provider("https://api.openalex.org");
+        private final Provider mavenCentral = new Provider("https://search.maven.org");
+        private final Provider npmRegistry = new Provider("https://registry.npmjs.org");
+        private final Provider pypi = new Provider("https://pypi.org");
+        private final Provider osv = new Provider("https://api.osv.dev");
+        private final Provider googleDns = new Provider("https://dns.google");
+        private final Provider worldBank = new Provider("https://api.worldbank.org");
+
+        public Providers() {
+            npmRegistry.setMaxResponseBytes(16_777_216);
+            npmRegistry.setAcceptHeader("application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*; q=0.1");
+        }
 
         public Provider getOpenMeteo() { return openMeteo; }
         public Provider getOpenMeteoGeocoding() { return openMeteoGeocoding; }
@@ -57,6 +70,14 @@ public class UtilityMcpProperties {
         public Provider getFrankfurter() { return frankfurter; }
         public Provider getNagerDate() { return nagerDate; }
         public Provider getWikimedia() { return wikimedia; }
+        public Provider getCrossref() { return crossref; }
+        public Provider getOpenAlex() { return openAlex; }
+        public Provider getMavenCentral() { return mavenCentral; }
+        public Provider getNpmRegistry() { return npmRegistry; }
+        public Provider getPypi() { return pypi; }
+        public Provider getOsv() { return osv; }
+        public Provider getGoogleDns() { return googleDns; }
+        public Provider getWorldBank() { return worldBank; }
     }
 
     /** Configuration for the official Microsoft Learn Streamable HTTP MCP endpoint. */
@@ -103,6 +124,7 @@ public class UtilityMcpProperties {
         private int maxConcurrent = 16;
         private Duration cacheTtl = Duration.ofMinutes(10);
         private boolean allowHttpForTests;
+        private String acceptHeader = "application/json";
 
         public Provider(String baseUrl) { this.baseUrl = URI.create(baseUrl); }
         public URI getBaseUrl() { return baseUrl; }
@@ -119,5 +141,7 @@ public class UtilityMcpProperties {
         public void setCacheTtl(Duration cacheTtl) { this.cacheTtl = cacheTtl; }
         public boolean isAllowHttpForTests() { return allowHttpForTests; }
         public void setAllowHttpForTests(boolean allowHttpForTests) { this.allowHttpForTests = allowHttpForTests; }
+        public String getAcceptHeader() { return acceptHeader; }
+        public void setAcceptHeader(String acceptHeader) { this.acceptHeader = acceptHeader; }
     }
 }

@@ -2,9 +2,9 @@ package org.wrj.haifa.ai.utilitymcp.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.netty.channel.ChannelOption;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.netty.channel.ChannelOption;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -12,29 +12,29 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Comparator;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.ReactorClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.wrj.haifa.ai.utilitymcp.config.UtilityMcpProperties;
 import org.wrj.haifa.ai.utilitymcp.config.UtilityNetworkProxyConfiguration;
 import org.wrj.haifa.ai.utilitymcp.config.UtilityNetworkProxyConfiguration.ProxySettings;
-import org.wrj.haifa.ai.utilitymcp.config.UtilityMcpProperties;
 import org.wrj.haifa.ai.utilitymcp.mcp.UtilityErrorCode;
 import org.wrj.haifa.ai.utilitymcp.mcp.UtilityToolException;
 import reactor.netty.http.client.HttpClient;
 
-public class ResilientJsonProvider implements JsonProvider {
+/** Bounded POST-only JSON provider for public APIs such as OSV. */
+public class ResilientJsonPostProvider implements JsonPostProvider {
 
-    private static final Logger log = LoggerFactory.getLogger(ResilientJsonProvider.class);
+    private static final Logger log = LoggerFactory.getLogger(ResilientJsonPostProvider.class);
     private static final Duration CIRCUIT_OPEN_DURATION = Duration.ofSeconds(30);
     private final String providerId;
     private final UtilityMcpProperties.Provider properties;
@@ -42,26 +42,17 @@ public class ResilientJsonProvider implements JsonProvider {
     private final RestClient restClient;
     private final Semaphore bulkhead;
     private final MeterRegistry meterRegistry;
-    private final ConcurrentHashMap<URI, CacheEntry> cache = new ConcurrentHashMap<>();
     private final AtomicInteger consecutiveFailures = new AtomicInteger();
     private volatile Instant circuitOpenUntil = Instant.EPOCH;
 
-    public ResilientJsonProvider(
+    public ResilientJsonPostProvider(
             String providerId,
             UtilityMcpProperties.Provider properties,
             ObjectMapper objectMapper) {
-        this(providerId, properties, objectMapper, null);
+        this(providerId, properties, objectMapper, null, new UtilityMcpProperties.Proxy());
     }
 
-    public ResilientJsonProvider(
-            String providerId,
-            UtilityMcpProperties.Provider properties,
-            ObjectMapper objectMapper,
-            MeterRegistry meterRegistry) {
-        this(providerId, properties, objectMapper, meterRegistry, new UtilityMcpProperties.Proxy());
-    }
-
-    public ResilientJsonProvider(
+    public ResilientJsonPostProvider(
             String providerId,
             UtilityMcpProperties.Provider properties,
             ObjectMapper objectMapper,
@@ -88,12 +79,12 @@ public class ResilientJsonProvider implements JsonProvider {
     }
 
     @Override
-    public ProviderPayload get(String path, Map<String, ?> query) {
+    public ProviderPayload post(String path, Map<String, ?> body) {
         long started = System.nanoTime();
         String safePath = safePath(path);
         URI uri;
         try {
-            uri = buildUri(path, query);
+            uri = buildUri(path);
         }
         catch (RuntimeException ex) {
             record("invalid_request", started);
@@ -101,18 +92,11 @@ public class ResilientJsonProvider implements JsonProvider {
                     providerId, safePath, ex.getClass().getSimpleName());
             throw ex;
         }
-        CacheEntry cached = cache.get(uri);
         Instant now = Instant.now();
-        if (cached != null && cached.expiresAt().isAfter(now)) {
-            increment("cache_hit");
-            record("success", started);
-            return new ProviderPayload(cached.body(), uri, cached.retrievedAt(), true);
-        }
         if (circuitOpenUntil.isAfter(now)) {
             increment("circuit_open");
             record("circuit_open", started);
-            log.warn("event=mcp_provider_request_rejected provider={} path={} reason=circuit_open retryAfterMs={}",
-                    providerId, safePath, Math.max(0, Duration.between(now, circuitOpenUntil).toMillis()));
+            log.warn("event=mcp_provider_request_rejected provider={} path={} reason=circuit_open", providerId, safePath);
             throw new UtilityToolException(UtilityErrorCode.UPSTREAM_UNAVAILABLE,
                     providerId + " circuit is temporarily open", true);
         }
@@ -124,10 +108,8 @@ public class ResilientJsonProvider implements JsonProvider {
                     providerId + " concurrency limit reached", true);
         }
         try {
-            ProviderPayload payload = requestWithOneRetry(uri, safePath);
+            ProviderPayload payload = requestWithOneRetry(uri, safePath, body == null ? Map.of() : body);
             consecutiveFailures.set(0);
-            cache.put(uri, new CacheEntry(payload.body(), payload.retrievedAt(),
-                    Instant.now().plus(properties.getCacheTtl())));
             record("success", started);
             return payload;
         }
@@ -149,11 +131,11 @@ public class ResilientJsonProvider implements JsonProvider {
         }
     }
 
-    private ProviderPayload requestWithOneRetry(URI uri, String safePath) {
+    private ProviderPayload requestWithOneRetry(URI uri, String safePath, Map<String, ?> body) {
         UtilityToolException last = null;
         for (int attempt = 0; attempt < 2; attempt++) {
             try {
-                return request(uri);
+                return request(uri, body);
             }
             catch (UtilityToolException ex) {
                 last = ex;
@@ -175,12 +157,14 @@ public class ResilientJsonProvider implements JsonProvider {
                 : last;
     }
 
-    private ProviderPayload request(URI uri) {
+    private ProviderPayload request(URI uri, Map<String, ?> body) {
         try {
-            return restClient.get()
+            return restClient.post()
                     .uri(uri)
-                    .header("Accept", properties.getAcceptHeader() != null ? properties.getAcceptHeader() : "application/json")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
                     .header("User-Agent", "haifa-utility-mcp/1.0")
+                    .body(body)
                     .exchange((request, response) -> readResponse(uri, response));
         }
         catch (UtilityToolException ex) {
@@ -209,13 +193,11 @@ public class ResilientJsonProvider implements JsonProvider {
                     providerId + " rate limit reached", true);
         }
         if (status < 200 || status >= 300) {
-            boolean retryable = status >= 500;
             throw new UtilityToolException(UtilityErrorCode.UPSTREAM_UNAVAILABLE,
-                    providerId + " returned HTTP " + status, retryable);
+                    providerId + " returned HTTP " + status, status >= 500);
         }
         String contentType = response.getHeaders().getFirst("Content-Type");
-        if (contentType == null) contentType = "";
-        if (!contentType.toLowerCase(java.util.Locale.ROOT).contains("json")) {
+        if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("json")) {
             throw new UtilityToolException(UtilityErrorCode.UPSTREAM_UNAVAILABLE,
                     providerId + " returned a non-JSON response", false);
         }
@@ -228,22 +210,15 @@ public class ResilientJsonProvider implements JsonProvider {
             throw new UtilityToolException(UtilityErrorCode.RESULT_TOO_LARGE,
                     providerId + " response exceeds the configured size limit", false);
         }
-        JsonNode body = objectMapper.readTree(bytes);
-        return new ProviderPayload(body, uri, OffsetDateTime.now(ZoneOffset.UTC), false);
+        JsonNode parsed = objectMapper.readTree(bytes);
+        return new ProviderPayload(parsed, uri, OffsetDateTime.now(ZoneOffset.UTC), false);
     }
 
-    private URI buildUri(String path, Map<String, ?> query) {
+    private URI buildUri(String path) {
         if (path == null || !path.startsWith("/") || path.contains("..")) {
             throw new IllegalArgumentException("Provider path must be an absolute safe path");
         }
-        UriComponentsBuilder builder = UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(path);
-        if (query != null) {
-            query.entrySet().stream()
-                    .filter(entry -> entry.getValue() != null)
-                    .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
-                    .forEach(entry -> builder.queryParam(entry.getKey(), entry.getValue()));
-        }
-        URI uri = builder.build().encode().toUri();
+        URI uri = UriComponentsBuilder.fromUri(properties.getBaseUrl()).path(path).build().encode().toUri();
         if (!properties.getBaseUrl().getHost().equalsIgnoreCase(uri.getHost())) {
             throw new IllegalStateException("Provider URI escaped the configured host");
         }
@@ -272,6 +247,18 @@ public class ResilientJsonProvider implements JsonProvider {
         return Math.max(0, Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
     }
 
+    private static String rootCauseName(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        return current.getClass().getSimpleName();
+    }
+
+    private static String safeDetail(String message) {
+        if (message == null || message.isBlank()) return "none";
+        String value = message.replaceAll("[\\p{Cntrl}]", "?");
+        return value.length() <= 200 ? value : value.substring(0, 200);
+    }
+
     private static int timeoutMillis(Duration timeout) {
         long millis = Math.max(1, timeout.toMillis());
         return (int) Math.min(Integer.MAX_VALUE, millis);
@@ -296,24 +283,12 @@ public class ResilientJsonProvider implements JsonProvider {
         return false;
     }
 
-    private static String rootCauseName(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
-        return current.getClass().getSimpleName();
-    }
-
     private static String safePath(String path) {
         if (path == null || path.isBlank()) return "unknown";
         String value = path.replaceAll("[\\p{Cntrl}]", "?");
         int query = value.indexOf('?');
         if (query >= 0) value = value.substring(0, query);
         return value.length() <= 160 ? value : value.substring(0, 160);
-    }
-
-    private static String safeDetail(String message) {
-        if (message == null || message.isBlank()) return "none";
-        String value = message.replaceAll("[\\p{Cntrl}]", "?");
-        return value.length() <= 200 ? value : value.substring(0, 200);
     }
 
     private static void validateBaseUrl(UtilityMcpProperties.Provider properties) {
@@ -331,6 +306,4 @@ public class ResilientJsonProvider implements JsonProvider {
             throw new IllegalArgumentException("Provider base URL must use HTTPS");
         }
     }
-
-    private record CacheEntry(JsonNode body, OffsetDateTime retrievedAt, Instant expiresAt) {}
 }
